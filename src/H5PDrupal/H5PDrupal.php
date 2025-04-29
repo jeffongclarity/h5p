@@ -6,9 +6,11 @@ use Drupal\Core\Cache\Cache;
 use Drupal\Core\Url;
 use Drupal\Core\StreamWrapper\PublicStream;
 use Drupal\h5p\Entity\H5PContent;
-use Drupal\h5peditor\H5PEditor;
 use Drupal\h5peditor\H5PEditor\H5PEditorDrupalStorage;
 
+/**
+ *
+ */
 class H5PDrupal implements \H5PFrameworkInterface {
 
   private $h5pPath;
@@ -17,64 +19,115 @@ class H5PDrupal implements \H5PFrameworkInterface {
 
   /**
    * Kesps track of messages for the user.
+   *
    * @var array
    */
   private $messages = ['error' => [], 'info' => []];
 
   /**
-   *  Store these options in State API instead of config.
+   * Store these options in State API instead of config.
    */
   const STATE_OPTIONS = [
     'content_type_cache_updated_at',
     'fetched_library_metadata_on',
   ];
+
   /**
-   * Get an instance of one of the h5p library classes
+   * Implements setContentHubMetadataChecked.
+   *
+   * @param string $lang
+   *   Language code in ISO 639-1.
+   * @param string|null $time
+   *   Time in RFC7231 format (if not provided, current time will be used).
+   *
+   * @return string
+   *   Returns the time that was set.
+   */
+  public function setContentHubMetadataChecked($lang = 'en', $time = NULL) {
+    if ($time === NULL) {
+      // Use gmdate to format the current time in RFC7231 format.
+      $time = gmdate('D, d M Y H:i:s T');
+    }
+    \Drupal::state()->set('h5p_content_hub_checked_' . $lang, $time);
+    return $time;
+  }
+
+  /**
+   *
+   */
+  public function replaceContentHubMetadataCache($metadata, $lang) {
+    $core = self::getInstance('core');
+    return $core->replaceContentHubMetadataCache($metadata, $lang);
+  }
+
+  /**
+   *
+   */
+  public function getContentHubMetadataCache($lang = 'en') {
+    $core = self::getInstance('core');
+    return $core->getContentHubMetadataCache($lang);
+  }
+
+  /**
+   *
+   */
+  public function getContentHubMetadataChecked($lang = 'en') {
+    $core = self::getInstance('core');
+    return $core->getContentHubMetadataChecked($lang);
+  }
+
+  /**
+   * Get an instance of one of the h5p library classes.
    *
    * @staticvar H5PDrupal $interface
    *  The interface between the H5P library and drupal
    * @staticvar H5PCore $core
    *  Core functions and storage in the h5p library
    * @param string $type
-   *  Specifies the instance to be returned; validator, storage, interface or core
+   *   Specifies the instance to be returned; validator, storage, interface or core.
+   *
    * @return \H5PCore|\H5PValidator|\H5PStorage|\H5PContentValidator|\H5PExport|\Drupal\h5p\H5PDrupal\H5PDrupal
-   *  The instance og h5p specified by type
+   *   The instance og h5p specified by type
    */
   public static function getInstance($type = 'interface', $instance = 'default') {
     static $instances;
 
     if (!isset($instances) || !isset($instances[$instance])) {
-      // Not present in runtime cache – create new instances
+      // Not present in runtime cache – create new instances.
       $interface = new self();
 
-      // Determine language
+      // Determine language.
       $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
 
-      // Prepare file storage
+      // Prepare file storage.
       $h5p_path = $interface->getOption('default_path', 'h5p');
       $fs = new \H5PDefaultStorage(\Drupal::service('file_system')->realpath("public://{$h5p_path}"));
 
-      // Determine if exports should be generated
+      // Determine if exports should be generated.
       $is_export_enabled = !!$interface->getOption('export', TRUE);
       $core = new \H5PCore($interface, $fs, base_path(), $language, $is_export_enabled);
 
-      // Add to runtime cache
+      // Add to runtime cache.
       $instances[$instance] = [$interface, $core];
     }
     else {
-      // Get runtime cache
+      // Get runtime cache.
       [$interface, $core] = $instances[$instance];
     }
 
     switch ($type) {
       case 'validator':
         return new \H5PValidator($interface, $core);
+
       case 'storage':
         return new \H5PStorage($interface, $core);
+
       case 'contentvalidator':
         return new \H5PContentValidator($interface, $core);
+
       case 'export':
         return new \H5PExport($interface, $core);
+
       default:
       case 'interface':
         return $interface;
@@ -94,49 +147,50 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Prepares the generic H5PIntegration settings
+   * Prepares the generic H5PIntegration settings.
    */
   public static function getGenericH5PIntegrationSettings() {
     static $settings;
 
     if (!empty($settings)) {
-      return $settings; // Only needs to be generated the first time
+      // Only needs to be generated the first time.
+      return $settings;
     }
 
-    // Load current user
+    // Load current user.
     $user = \Drupal::currentUser();
 
-    // Load configuration settings
+    // Load configuration settings.
     $interface = self::getInstance();
     $h5p_save_content_state = $interface->getOption('save_content_state', FALSE);
     $h5p_save_content_frequency = $interface->getOption('save_content_frequency', 30);
     $h5p_hub_is_enabled = $interface->getOption('hub_is_enabled', TRUE);
 
-    // Create AJAX URLs
+    // Create AJAX URLs.
     $set_finished_url = Url::fromUri('internal:/h5p-ajax/set-finished.json', ['query' => ['token' => \H5PCore::createToken('result')]])->toString(TRUE)->getGeneratedUrl();
     $content_user_data_url = Url::fromUri('internal:/h5p-ajax/content-user-data/:contentId/:dataType/:subContentId', ['query' => ['token' => \H5PCore::createToken('contentuserdata')]])->toString(TRUE)->getGeneratedUrl();
     $h5p_url = base_path() . self::getRelativeH5PPath();
 
-    // Define the generic H5PIntegration settings
+    // Define the generic H5PIntegration settings.
     $core = self::getInstance('core');
-    $settings = array(
+    $settings = [
       'baseUrl' => base_path(),
       'url' => $h5p_url,
       'postUserStatistics' => $user->id() > 0,
-      'ajax' => array(
+      'ajax' => [
         'setFinished' => $set_finished_url,
         'contentUserData' => str_replace('%3A', ':', $content_user_data_url),
-      ),
+      ],
       'saveFreq' => $h5p_save_content_state ? $h5p_save_content_frequency : FALSE,
-      'l10n' => array(
+      'l10n' => [
         'H5P' => $core->getLocalization(),
-      ),
+      ],
       'hubIsEnabled' => $h5p_hub_is_enabled,
       'reportingIsEnabled' => ($interface->getOption('enable_lrs_content_types', FALSE) === 1) ? TRUE : FALSE,
       'libraryConfig' => $core->h5pF->getLibraryConfig(),
       'pluginCacheBuster' => '?' . \Drupal::state()->get('system.css_js_query_string', '0'),
       'libraryUrl' => base_path() . \Drupal::service('extension.list.module')->getPath('h5p') . '/vendor/h5p/h5p-core/js',
-    );
+    ];
 
     if ($user->id()) {
       $settings['user'] = [
@@ -154,7 +208,9 @@ class H5PDrupal implements \H5PFrameworkInterface {
   /**
    * Get a list with prepared asset links that is used when JS loads components.
    *
-   * @param array [$keys] Optional keys, first for JS second for CSS.
+   * @param array [ $keys]
+   *   Optional keys, first for JS second for CSS.
+   *
    * @return array
    */
   public static function getCoreAssets($keys = NULL) {
@@ -162,22 +218,22 @@ class H5PDrupal implements \H5PFrameworkInterface {
       $keys = ['scripts', 'styles'];
     }
 
-    // Prepare arrays
+    // Prepare arrays.
     $assets = [
       $keys[0] => [],
       $keys[1] => [],
     ];
 
-    // Determine cache buster
+    // Determine cache buster.
     $cache_buster = \Drupal::state()->get('system.css_js_query_string', '0');
     $h5p_module_path = \Drupal::service('extension.list.module')->getPath('h5p');
 
-    // Add all core scripts
+    // Add all core scripts.
     foreach (\H5PCore::$scripts as $script) {
       $assets[$keys[0]][] = "{$h5p_module_path}/vendor/h5p/h5p-core/{$script}?{$cache_buster}";
     }
 
-    // and styles
+    // And styles.
     foreach (\H5PCore::$styles as $style) {
       $assets[$keys[1]][] = "{$h5p_module_path}/vendor/h5p/h5p-core/{$style}?{$cache_buster}";
     }
@@ -210,7 +266,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Combines a set of files to a cached version, that is public available
+   * Combines a set of files to a cached version, that is public available.
    *
    * @param string[] $filePaths
    * @param AssetCollectionOptimizerInterface $optimizer
@@ -235,13 +291,15 @@ class H5PDrupal implements \H5PFrameworkInterface {
       $path = explode('?', $path)[0];
 
       $assets[$path] = [
-        'weight' => count($filePaths) - $index,
-        'data' => $path,
-      ] + $assetConfig + $defaultAssetConfig;
+          'weight' => count($filePaths) - $index,
+          'data' => $path,
+        ] + $assetConfig + $defaultAssetConfig;
     }
     $cachedAsset = $optimizer->optimize($assets, []);
 
-    return array_map(function($publicUrl){ return \Drupal::service('file_url_generator')->generateAbsoluteString($publicUrl); }, array_column($cachedAsset, 'data'));
+    return array_map(function ($publicUrl) {
+      return \Drupal::service('file_url_generator')->generateAbsoluteString($publicUrl);
+    }, array_column($cachedAsset, 'data'));
 
   }
 
@@ -266,7 +324,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
     $last_fetched_at = intval($this->getOption('fetched_library_metadata_on', 0));
 
     if ($fetchingDisabled || (($hub_is_enabled) || $send_usage_statistics) &&
-        ($last_fetched_at < (time() - 86400))) {
+      ($last_fetched_at < (time() - 86400))) {
       // Fetch the library-metadata:
       $core = H5PDrupal::getInstance('core');
       $core->fetchLibrariesMetadata($fetchingDisabled);
@@ -275,7 +333,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getPlatformInfo
+   * Implements getPlatformInfo.
    */
   public function getPlatformInfo() {
 
@@ -284,19 +342,19 @@ class H5PDrupal implements \H5PFrameworkInterface {
     return [
       'name' => 'drupal',
       'version' => \DRUPAL::VERSION,
-      'h5pVersion' => isset($h5p_info['version']) ? $h5p_info['version'] : NULL,
+      'h5pVersion' => $h5p_info['version'] ?? NULL,
     ];
   }
 
   /**
-   * Implements fetchExternalData
+   * Implements fetchExternalData.
    */
-  public function fetchExternalData($url, $data = NULL, $blocking = TRUE, $stream = NULL) {
+  public function fetchExternalData($url, $data = NULL, $blocking = TRUE, $stream = NULL, $fullData = FALSE, $headers = [], $files = [], $method = 'POST') {
 
     $options = [];
     if (!empty($data)) {
       $options['headers'] = [
-        'Content-Type' => 'application/x-www-form-urlencoded'
+        'Content-Type' => 'application/x-www-form-urlencoded',
       ];
       $options['form_params'] = $data;
     }
@@ -320,9 +378,9 @@ class H5PDrupal implements \H5PFrameworkInterface {
     }
 
     if ($stream && empty($response->error)) {
-      // Create file from data
+      // Create file from data.
       H5PEditorDrupalStorage::saveFileTemporarily($response_data);
-      // TODO: Cannot rely on H5PEditor module – Perhaps we could use the
+      // @todo Cannot rely on H5PEditor module – Perhaps we could use the
       // save_to/sink option to save directly to file when streaming ?
       // http://guzzle.readthedocs.io/en/latest/request-options.html#sink-option
       return TRUE;
@@ -332,9 +390,9 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements setLibraryTutorialUrl
+   * Implements setLibraryTutorialUrl.
    *
-   * Set the tutorial URL for a library. All versions of the library is set
+   * Set the tutorial URL for a library. All versions of the library is set.
    *
    * @param string $machineName
    * @param string $tutorialUrl
@@ -349,18 +407,18 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements setErrorMessage
+   * Implements setErrorMessage.
    */
   public function setErrorMessage($message, $code = NULL) {
-    $this->messages['error'][] = (object)array(
+    $this->messages['error'][] = (object) [
       'code' => $code,
-      'message' => $message
-    );
+      'message' => $message,
+    ];
     \Drupal::messenger()->addError($message);
   }
 
   /**
-   * Implements setInfoMessage
+   * Implements setInfoMessage.
    */
   public function setInfoMessage($message) {
     $this->messages['info'][] = $message;
@@ -368,7 +426,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getMessages
+   * Implements getMessages.
    */
   public function getMessages($type) {
     if (empty($this->messages[$type])) {
@@ -376,19 +434,20 @@ class H5PDrupal implements \H5PFrameworkInterface {
     }
     $messages = $this->messages[$type];
     $this->messages[$type] = [];
-    \Drupal::messenger()->messagesByType($type === 'info' ? 'status' : $type, TRUE); // Prevent messages from displaying twice
+    // Prevent messages from displaying twice.
+    \Drupal::messenger()->messagesByType($type === 'info' ? 'status' : $type, TRUE);
     return $messages;
   }
 
   /**
-   * Implements t
+   * Implements t.
    */
   public function t($message, $replacements = []) {
     return t($message, $replacements);
   }
 
   /**
-   * Implements getLibraryFileUrl
+   * Implements getLibraryFileUrl.
    */
   public function getLibraryFileUrl($libraryFolderName, $fileName) {
     // Misplaced; this is something that Core should be able to handle.
@@ -396,7 +455,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getUploadedH5PFolderPath
+   * Implements getUploadedH5PFolderPath.
    */
   public function getUploadedH5pFolderPath($set = NULL) {
     if (!empty($set)) {
@@ -407,7 +466,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getUploadedH5PPath
+   * Implements getUploadedH5PPath.
    */
   public function getUploadedH5pPath($set = NULL) {
     if (!empty($set)) {
@@ -418,7 +477,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements loadLibraries
+   * Implements loadLibraries.
    */
   public function loadLibraries() {
     $result = \Drupal::database()->query("
@@ -445,7 +504,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getAdminUrl
+   * Implements getAdminUrl.
    */
   public function getAdminUrl() {
     // Misplaced; not used by Core.
@@ -454,7 +513,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getLibraryId
+   * Implements getLibraryId.
    */
   public function getLibraryId($machineName, $majorVersion = NULL, $minorVersion = NULL) {
     $library_id = \Drupal::database()->query("
@@ -466,7 +525,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
       [
         ':machine_name' => $machineName,
         ':major_version' => $majorVersion,
-        ':minor_version' => $minorVersion
+        ':minor_version' => $minorVersion,
       ]
     )->fetchField();
 
@@ -474,7 +533,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements isPatchedLibrary
+   * Implements isPatchedLibrary.
    */
   public function isPatchedLibrary($library) {
     if ($this->getOption('dev_mode', FALSE)) {
@@ -492,14 +551,14 @@ class H5PDrupal implements \H5PFrameworkInterface {
         ':machineName' => $library['machineName'],
         ':majorVersion' => $library['majorVersion'],
         ':minorVersion' => $library['minorVersion'],
-        ':patchVersion' => $library['patchVersion']
+        ':patchVersion' => $library['patchVersion'],
       ]
     )->fetchField();
     return $result === '1';
   }
 
   /**
-   * Implements isInDevMode
+   * Implements isInDevMode.
    */
   public function isInDevMode() {
     $h5p_dev_mode = $this->getOption('dev_mode', FALSE);
@@ -507,25 +566,26 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements mayUpdateLibraries
+   * Implements mayUpdateLibraries.
    */
   public function mayUpdateLibraries() {
 
-    // Get the current user
+    // Get the current user.
     $user = \Drupal::currentUser();
-    // Check for permission
+    // Check for permission.
     return $user->hasPermission('update h5p libraries');
   }
 
   /**
-   * Implements getLibraryUsage
+   * Implements getLibraryUsage.
    *
    * Get number of content using a library, and the number of
-   * dependencies to other libraries
+   * dependencies to other libraries.
    *
    * @param int $libraryId
+   *
    * @return array The array contains two elements, keyed by 'content' and 'libraries'.
-   *               Each element contains a number
+   *   Each element contains a number
    */
   public function getLibraryUsage($libraryId, $skipContent = FALSE) {
     $usage = [];
@@ -544,7 +604,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
         ON nl.content_id = nfd.id
         WHERE l.library_id = :id",
         [
-          ':id' => $libraryId
+          ':id' => $libraryId,
         ])->fetchField());
     }
 
@@ -559,19 +619,19 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getLibraryContentCount
+   * Implements getLibraryContentCount.
    *
    * Get a key value list of library version and count of content created
    * using that library.
    *
    * @return array
-   *  Array containing library, major and minor version - content count
-   *  e.g. "H5P.CoursePresentation 1.6" => "14"
+   *   Array containing library, major and minor version - content count
+   *   e.g. "H5P.CoursePresentation 1.6" => "14"
    */
   public function getLibraryContentCount() {
     $contentCount = [];
 
-    // Count content with same machine name, major and minor version
+    // Count content with same machine name, major and minor version.
     $results = \Drupal::database()->query("
       SELECT
         l.machine_name AS name,
@@ -586,8 +646,8 @@ class H5PDrupal implements \H5PFrameworkInterface {
         l.minor_version"
     );
 
-    // Format results
-    foreach($results as $library) {
+    // Format results.
+    foreach ($results as $library) {
       $contentCount["{$library->name} {$library->major}.{$library->minor}"] = $library->count;
     }
 
@@ -595,7 +655,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getLibraryStats
+   * Implements getLibraryStats.
    */
   public function getLibraryStats($type) {
     $count = [];
@@ -608,11 +668,11 @@ class H5PDrupal implements \H5PFrameworkInterface {
       FROM {h5p_counters}
       WHERE type = :type",
       [
-        ':type' => $type
+        ':type' => $type,
       ])->fetchAll();
 
-    // Extract results
-    foreach($results as $library) {
+    // Extract results.
+    foreach ($results as $library) {
       $count["{$library->name} {$library->version}"] = $library->num;
     }
 
@@ -620,7 +680,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getNumAuthors
+   * Implements getNumAuthors.
    */
   public function getNumAuthors() {
 
@@ -629,23 +689,23 @@ class H5PDrupal implements \H5PFrameworkInterface {
       FROM {h5p_content}
       LIMIT 1")->fetchField();
 
-    // Return 1 if there is content and 0 if there is none
+    // Return 1 if there is content and 0 if there is none.
     return empty($id) ? 0 : 1;
   }
 
   /**
-   * Implements saveLibraryData
+   * Implements saveLibraryData.
    *
    * @param array $libraryData
-   * @param boolean $new
+   * @param bool $new
    */
   public function saveLibraryData(&$libraryData, $new = TRUE) {
     $preloadedJs = $this->pathsToCsv($libraryData, 'preloadedJs');
-    $preloadedCss =  $this->pathsToCsv($libraryData, 'preloadedCss');
+    $preloadedCss = $this->pathsToCsv($libraryData, 'preloadedCss');
     $dropLibraryCss = '';
 
     if (isset($libraryData['dropLibraryCss'])) {
-      $libs = array();
+      $libs = [];
       foreach ($libraryData['dropLibraryCss'] as $lib) {
         $libs[] = $lib['machineName'];
       }
@@ -691,7 +751,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
       $libraryData['libraryId'] = $libraryId;
       if ($libraryData['runnable']) {
         $h5p_first_runnable_saved = $this->getOption('first_runnable_saved', FALSE);
-        if (! $h5p_first_runnable_saved) {
+        if (!$h5p_first_runnable_saved) {
           $this->setOption('first_runnable_saved', 1);
         }
       }
@@ -717,15 +777,15 @@ class H5PDrupal implements \H5PFrameworkInterface {
       $this->deleteLibraryDependencies($libraryData['libraryId']);
     }
 
-    // Log library installed or updated
+    // Log library installed or updated.
     new H5PEvent('library', ($new ? 'create' : 'update'),
       NULL, NULL,
       $libraryData['machineName'],
       $libraryData['majorVersion'] . '.' . $libraryData['minorVersion']
     );
 
-    // invoke library installed
-    \Drupal::moduleHandler()->invokeAll('h5p_library_installed', array($libraryData, $new));
+    // Invoke library installed.
+    \Drupal::moduleHandler()->invokeAll('h5p_library_installed', [$libraryData, $new]);
 
     $database->delete('h5p_libraries_languages')
       ->condition('library_id', $libraryData['libraryId'])
@@ -733,11 +793,11 @@ class H5PDrupal implements \H5PFrameworkInterface {
     if (isset($libraryData['language'])) {
       foreach ($libraryData['language'] as $languageCode => $languageJson) {
         $id = $database->insert('h5p_libraries_languages')
-          ->fields(array(
+          ->fields([
             'library_id' => $libraryData['libraryId'],
             'language_code' => $languageCode,
             'language_json' => $languageJson,
-          ))
+          ])
           ->execute();
       }
     }
@@ -745,18 +805,19 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Convert list of file paths to csv
+   * Convert list of file paths to csv.
    *
    * @param array $libraryData
-   *  Library data as found in library.json files
+   *   Library data as found in library.json files.
    * @param string $key
-   *  Key that should be found in $libraryData
+   *   Key that should be found in $libraryData.
+   *
    * @return string
-   *  file paths separated by ', '
+   *   file paths separated by ', '
    */
   private function pathsToCsv($libraryData, $key) {
     if (isset($libraryData[$key])) {
-      $paths = array();
+      $paths = [];
       foreach ($libraryData[$key] as $file) {
         $paths[] = $file['path'];
       }
@@ -765,6 +826,9 @@ class H5PDrupal implements \H5PFrameworkInterface {
     return '';
   }
 
+  /**
+   *
+   */
   public function lockDependencyStorage() {
     $database = \Drupal::database();
 
@@ -775,6 +839,9 @@ class H5PDrupal implements \H5PFrameworkInterface {
     }
   }
 
+  /**
+   *
+   */
   public function unlockDependencyStorage() {
     $database = \Drupal::database();
     if ($database->driver() === 'mysql') {
@@ -783,7 +850,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements deleteLibraryDependencies
+   * Implements deleteLibraryDependencies.
    */
   public function deleteLibraryDependencies($libraryId) {
     \Drupal::database()->delete('h5p_libraries_libraries')
@@ -792,7 +859,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements deleteLibrary. Will delete a library's data both in the database and file system
+   * Implements deleteLibrary. Will delete a library's data both in the database and file system.
    */
   public function deleteLibrary($libraryId) {
     $database = \Drupal::database();
@@ -801,7 +868,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
       [':id' => $libraryId]
     )->fetchObject();
 
-    // Delete files
+    // Delete files.
     \H5PCore::deleteFileTree(self::getRelativeH5PPath() . "/libraries/{$library->machine_name}-{$library->major_version}.{$library->minor_version}");
 
     // Delete data in database (won't delete content)
@@ -811,7 +878,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements saveLibraryDependencies
+   * Implements saveLibraryDependencies.
    */
   public function saveLibraryDependencies($libraryId, $dependencies, $dependency_type) {
     $database = \Drupal::database();
@@ -831,66 +898,66 @@ class H5PDrupal implements \H5PFrameworkInterface {
        * try to control the order of the fields in the select statement or something.
        */
       $database->insert('h5p_libraries_libraries')
-        ->fields(array('required_library_id', 'library_id', 'dependency_type'))
+        ->fields(['required_library_id', 'library_id', 'dependency_type'])
         ->from($query)
         ->execute();
     }
   }
 
   /**
-   * Implements updateContent
+   * Implements updateContent.
    */
   public function updateContent($content, $contentMainId = NULL) {
-    // Load existing entity
+    // Load existing entity.
     $h5p_content = H5PContent::load($content['id']);
 
-    // Update properties
+    // Update properties.
     $h5p_content->set('library_id', $content['library']['libraryId']);
     $h5p_content->set('parameters', $content['params']);
     $h5p_content->set('disabled_features', $content['disable']);
     $h5p_content->set('filtered_parameters', '');
 
-    // Update metadata properties
+    // Update metadata properties.
     $metadata_fields = \H5PMetadata::toDBArray($content['metadata']);
     foreach ($metadata_fields as $key => $value) {
       $h5p_content->set($key, $value);
     }
 
-    // Save changes
+    // Save changes.
     $h5p_content->save();
 
-    // Log update event
+    // Log update event.
     self::logContentEvent('update', $content);
   }
 
   /**
-   * Implements insertContent
+   * Implements insertContent.
    */
   public function insertContent($content, $contentMainId = NULL) {
     $fields = array_merge(\H5PMetadata::toDBArray($content['metadata']), [
       'library_id' => $content['library']['libraryId'],
       'parameters' => $content['params'],
-      'disabled_features' => $content['disable']
+      'disabled_features' => $content['disable'],
     ]);
 
-    // Create new entity for content
+    // Create new entity for content.
     $h5p_content = H5PContent::create($fields);
 
-    // Save
+    // Save.
     $h5p_content->save();
 
-    // Grab id of new entitu
+    // Grab id of new entitu.
     $content['id'] = $h5p_content->id();
 
-    // Log create event
+    // Log create event.
     self::logContentEvent('create', $content);
 
-    // Return content id of the new entity
+    // Return content id of the new entity.
     return $content['id'];
   }
 
   /**
-   * Help log content events
+   * Help log content events.
    *
    * @param string $eventType
    * @param array $content
@@ -907,14 +974,14 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements resetContentUserData
+   * Implements resetContentUserData.
    */
   public function resetContentUserData($contentId) {
-    // Reset user datas for this content
+    // Reset user datas for this content.
     \Drupal::database()->update('h5p_content_user_data')
       ->fields([
         'timestamp' => \Drupal::time()->getCurrentTime(),
-        'data' => 'RESET'
+        'data' => 'RESET',
       ])
       ->condition('content_main_id', $contentId)
       ->condition('delete_on_content_change', 1)
@@ -922,7 +989,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getWhitelist
+   * Implements getWhitelist.
    */
   public function getWhitelist($isLibrary, $defaultContentWhitelist, $defaultLibraryWhitelist) {
     // Misplaced; should be done by Core.
@@ -937,7 +1004,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements copyLibraryUsage
+   * Implements copyLibraryUsage.
    */
   public function copyLibraryUsage($contentId, $copyFromId, $contentMainId = NULL) {
     \Drupal::database()->query("
@@ -949,31 +1016,31 @@ class H5PDrupal implements \H5PFrameworkInterface {
       WHERE hnl.content_id = :fromId",
       [
         ':toId' => $contentId,
-        ':fromId' => $copyFromId
+        ':fromId' => $copyFromId,
       ]);
   }
 
   /**
-   * Implements deleteContentData
+   * Implements deleteContentData.
    */
   public function deleteContentData($contentId) {
-    // Delete library usage
+    // Delete library usage.
     $this->deleteLibraryUsage($contentId);
     $database = \Drupal::database();
 
-    // Remove content points
+    // Remove content points.
     $database->delete('h5p_points')
       ->condition('content_id', $contentId)
       ->execute();
 
-    // Remove content user data
+    // Remove content user data.
     $database->delete('h5p_content_user_data')
       ->condition('content_main_id', $contentId)
       ->execute();
   }
 
   /**
-   * Implements deleteLibraryUsage
+   * Implements deleteLibraryUsage.
    */
   public function deleteLibraryUsage($contentId) {
     \Drupal::database()->delete('h5p_content_libraries')
@@ -982,10 +1049,10 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements saveLibraryUsage
+   * Implements saveLibraryUsage.
    */
   public function saveLibraryUsage($contentId, $librariesInUse) {
-    $dropLibraryCssList = array();
+    $dropLibraryCssList = [];
     foreach ($librariesInUse as $dependency) {
       if (!empty($dependency['library']['dropLibraryCss'])) {
         $dropLibraryCssList = array_merge($dropLibraryCssList, explode(', ', $dependency['library']['dropLibraryCss']));
@@ -995,19 +1062,19 @@ class H5PDrupal implements \H5PFrameworkInterface {
     foreach ($librariesInUse as $dependency) {
       $dropCss = in_array($dependency['library']['machineName'], $dropLibraryCssList) ? 1 : 0;
       $database->insert('h5p_content_libraries')
-        ->fields(array(
+        ->fields([
           'content_id' => $contentId,
           'library_id' => $dependency['library']['libraryId'],
           'dependency_type' => $dependency['type'],
           'drop_css' => $dropCss,
           'weight' => $dependency['weight'],
-        ))
+        ])
         ->execute();
     }
   }
 
   /**
-   * Implements loadLibrary
+   * Implements loadLibrary.
    */
   public function loadLibrary($machineName, $majorVersion, $minorVersion) {
     $database = \Drupal::database();
@@ -1034,7 +1101,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
       [
         ':machine_name' => $machineName,
         ':major_version' => $majorVersion,
-        ':minor_version' => $minorVersion
+        ':minor_version' => $minorVersion,
       ]
     )->fetchObject();
 
@@ -1043,7 +1110,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
     }
     $library = \H5PCore::snakeToCamel($library);
 
-    // Load dependencies
+    // Load dependencies.
     $result = $database->query(
       "SELECT hl.machine_name AS name,
               hl.major_version AS major,
@@ -1054,7 +1121,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
             ON hll.required_library_id = hl.library_id
         WHERE hll.library_id = :library_id",
       [
-        ':library_id' => $library['libraryId']
+        ':library_id' => $library['libraryId'],
       ]
     );
 
@@ -1082,7 +1149,7 @@ class H5PDrupal implements \H5PFrameworkInterface {
       [
         ':machine_name' => $machineName,
         ':major_version' => $majorVersion,
-        ':minor_version' => $minorVersion
+        ':minor_version' => $minorVersion,
       ]
     )->fetchField();
 
@@ -1093,8 +1160,8 @@ class H5PDrupal implements \H5PFrameworkInterface {
    * Implements alterLibrarySemantics().
    */
   public function alterLibrarySemantics(&$semantics, $name, $majorVersion, $minorVersion) {
-    // alter only takes 4 arguments, so versions are combined to single parameter
-    $version = $majorVersion . '.'. $minorVersion;
+    // Alter only takes 4 arguments, so versions are combined to single parameter.
+    $version = $majorVersion . '.' . $minorVersion;
     \Drupal::moduleHandler()->alter('h5p_semantics', $semantics, $name, $version);
   }
 
@@ -1141,9 +1208,10 @@ class H5PDrupal implements \H5PFrameworkInterface {
    * Get stored setting.
    *
    * @param string $name
-   *   Identifier for the setting
+   *   Identifier for the setting.
    * @param string $default
-   *   Optional default value if settings is not set
+   *   Optional default value if settings is not set.
+   *
    * @return mixed
    *   Whatever has been stored as the setting
    */
@@ -1154,16 +1222,17 @@ class H5PDrupal implements \H5PFrameworkInterface {
     else {
       $value = \Drupal::config('h5p.settings')->get('h5p_' . $name);
     }
-    return $value !== NULL ? $value : $default;
+    return $value ?? $default;
   }
 
   /**
    * Stores the given setting.
    *
    * @param string $name
-   *   Identifier for the setting
-   * @param mixed $value Data
-   *   Whatever we want to store as the setting
+   *   Identifier for the setting.
+   * @param mixed $value
+   *   Data
+   *   Whatever we want to store as the setting.
    */
   public function setOption($name, $value) {
     // Only update the setting if it has infact changed.
@@ -1183,12 +1252,14 @@ class H5PDrupal implements \H5PFrameworkInterface {
    * Returns whether to store this variable in Drupal's state api, or config.
    *
    * @param string $name
-   *   Key for the name
-   * @return boolean
+   *   Key for the name.
+   *
+   * @return bool
    */
   protected function stateOption($name) {
     return in_array($name, self::STATE_OPTIONS);
   }
+
   /**
    * Convert variables to fit our DB.
    */
@@ -1219,29 +1290,29 @@ class H5PDrupal implements \H5PFrameworkInterface {
    */
   public function clearFilteredParameters($library_ids) {
 
-    // Grab all H5PContent entities
+    // Grab all H5PContent entities.
     $h5p_contents = \Drupal::entityTypeManager()
-        ->getStorage('h5p_content')
-        ->loadByProperties(['library_id' => $library_ids]);
+      ->getStorage('h5p_content')
+      ->loadByProperties(['library_id' => $library_ids]);
     /** @var \Drupal\h5p\Entity\H5PContent[] $h5p_contents */
 
-    // Clear their filtered_parameters
+    // Clear their filtered_parameters.
     foreach ($h5p_contents as $h5p_content) {
       $h5p_content->set('filtered_parameters', '');
       $h5p_content->save();
     }
 
-    // Clear hook_library_info_build() to use updated libraries
+    // Clear hook_library_info_build() to use updated libraries.
     \Drupal::service('library.discovery.collector')->clear();
 
-    // Delete ALL cached JS and CSS files
+    // Delete ALL cached JS and CSS files.
     \Drupal::service('asset.js.collection_optimizer')->deleteAll();
     \Drupal::service('asset.css.collection_optimizer')->deleteAll();
 
-    // Reset cache buster
+    // Reset cache buster.
     _drupal_flush_css_js();
 
-    // Clear field view cache for ALL H5P content
+    // Clear field view cache for ALL H5P content.
     Cache::invalidateTags(['h5p_content']);
   }
 
@@ -1264,35 +1335,36 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements isContentSlugAvailable
+   * Implements isContentSlugAvailable.
    */
   public function isContentSlugAvailable($slug) {
     return !\Drupal::database()->query('SELECT slug FROM {h5p_content} WHERE slug = :slug', [':slug' => $slug])->fetchField();
   }
 
   /**
-   * Implements saveCachedAssets
+   * Implements saveCachedAssets.
    */
   public function saveCachedAssets($key, $libraries) {
   }
 
   /**
-   * Implements deleteCachedAssets
+   * Implements deleteCachedAssets.
    */
   public function deleteCachedAssets($library_id) {
   }
 
   /**
-   * Implements afterExportCreated
+   * Implements afterExportCreated.
    */
   public function afterExportCreated($content, $filename) {
   }
 
   /**
-   * Implements hasPermission
+   * Implements hasPermission.
    *
    * @param H5PPermission $permission
-   * @param boolean $canUpdateEntity
+   * @param bool $canUpdateEntity
+   *
    * @return bool
    */
   public function hasPermission($permission, $canUpdateEntity = NULL) {
@@ -1330,14 +1402,15 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Replaces existing content type cache with the one passed in
+   * Replaces existing content type cache with the one passed in.
    *
-   * @param object $contentTypeCache Json with an array called 'libraries'
-   *  containing the new content type cache that should replace the old one.
+   * @param object $contentTypeCache
+   *   Json with an array called 'libraries'
+   *   containing the new content type cache that should replace the old one.
    */
   public function replaceContentTypeCache($contentTypeCache) {
     $database = \Drupal::database();
-    // Replace existing cache
+    // Replace existing cache.
     $database->delete('h5p_libraries_hub_cache')->execute();
 
     foreach ($contentTypeCache->contentTypes as $ct) {
@@ -1360,19 +1433,19 @@ class H5PDrupal implements \H5PFrameworkInterface {
           'is_recommended' => $ct->isRecommended === TRUE ? 1 : 0,
           'popularity' => $ct->popularity,
           'screenshots' => json_encode($ct->screenshots),
-          'license' => json_encode(isset($ct->license) ? $ct->license : array()),
+          'license' => json_encode($ct->license ?? []),
           'example' => $ct->example,
-          'tutorial' => isset($ct->tutorial) ? $ct->tutorial : '',
-          'keywords' => json_encode(isset($ct->keywords) ? $ct->keywords : array()),
-          'categories' => json_encode(isset($ct->categories) ? $ct->categories : array()),
-          'owner' => $ct->owner
+          'tutorial' => $ct->tutorial ?? '',
+          'keywords' => json_encode($ct->keywords ?? []),
+          'categories' => json_encode($ct->categories ?? []),
+          'owner' => $ct->owner,
         ])
         ->execute();
     }
   }
 
   /**
-   * Implements loadAddons
+   * Implements loadAddons.
    */
   public function loadAddons() {
     $result = \Drupal::database()->query("
@@ -1385,9 +1458,8 @@ class H5PDrupal implements \H5PFrameworkInterface {
       AND l2.machine_name IS NULL");
 
     // NOTE: These are treated as library objects but are missing the following properties:
-    // title, embed_types, drop_library_css, fullscreen, runnable, semantics, has_icon
-
-    $addons = array();
+    // title, embed_types, drop_library_css, fullscreen, runnable, semantics, has_icon.
+    $addons = [];
     while ($addon = $result->fetchObject()) {
       $addons[] = \H5PCore::snakeToCamel($addon);
     }
@@ -1395,14 +1467,14 @@ class H5PDrupal implements \H5PFrameworkInterface {
   }
 
   /**
-   * Implements getLibraryConfig
+   * Implements getLibraryConfig.
    */
   public function getLibraryConfig($libraries = NULL) {
     return $this->getOption('library_config', NULL);
   }
 
   /**
-   * Implements libraryHasUpgrade
+   * Implements libraryHasUpgrade.
    */
   public function libraryHasUpgrade($library) {
     return !!\Drupal::database()->query(
@@ -1415,7 +1487,8 @@ class H5PDrupal implements \H5PFrameworkInterface {
       [
         ':name' => $library['machineName'],
         ':major' => $library['majorVersion'],
-        ':minor' => $library['minorVersion']
+        ':minor' => $library['minorVersion'],
       ])->fetchField();
   }
+
 }
